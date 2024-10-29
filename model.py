@@ -1,9 +1,10 @@
 from torch import nn
-from utils import *
+from utils import decimate,cxcy_to_xy,cxcy_to_gcxgcy,find_jaccard_overlap,xy_to_cxcy,gcxgcy_to_cxcy
 import torch.nn.functional as F
 from math import sqrt
 from itertools import product as product
 import torchvision
+import torch
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

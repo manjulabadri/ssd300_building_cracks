@@ -4,7 +4,7 @@ import torch.optim
 import torch.utils.data
 from model import SSD300, MultiBoxLoss
 from datasets import PascalVOCDataset
-from utils import *
+from utils import label_map,adjust_learning_rate,AverageMeter,save_checkpoint,clip_gradient
 
 # Data parameters
 data_folder = './'  # folder with data files
@@ -18,15 +18,16 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Learning parameters
 checkpoint = None  # path to model checkpoint, None if none
 batch_size = 8  # batch size
-iterations = 120000  # number of iterations to train
-workers = 4  # number of workers for loading data in the DataLoader
-print_freq = 200  # print training status every __ batches
-lr = 1e-3  # learning rate
-decay_lr_at = [80000, 100000]  # decay learning rate after these many iterations
+iterations = 600 # total iterations for 100 epochs
+workers = 2  # number of workers for loading data in the DataLoader
+print_freq = 2 # print training status every 20 batches
+lr = 1e-3  # learning rate (can be reduced to 1e-4 if overfitting occurs)
+decay_lr_at = [200,350]  # decay learning rate at appropriate iteration points
 decay_lr_to = 0.1  # decay learning rate to this fraction of the existing learning rate
 momentum = 0.9  # momentum
-weight_decay = 5e-4  # weight decay
-grad_clip = None  # clip if gradients are exploding, which may happen at larger batch sizes (sometimes at 32) - you will recognize it by a sorting error in the MuliBox loss calculation
+weight_decay = 1e-4  # weight decay (reduced for smaller dataset)
+grad_clip = None  # gradient clipping (None by default)
+# clip if gradients are exploding, which may happen at larger batch sizes (sometimes at 32) - you will recognize it by a sorting error in the MuliBox loss calculation
 
 cudnn.benchmark = True
 
@@ -68,6 +69,7 @@ def main():
     train_dataset = PascalVOCDataset(data_folder,
                                      split='train',
                                      keep_difficult=keep_difficult)
+    print(len(train_dataset))
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
                                                collate_fn=train_dataset.collate_fn, num_workers=workers,
                                                pin_memory=True)  # note that we're passing the collate function here
@@ -75,8 +77,8 @@ def main():
     # Calculate total number of epochs to train and the epochs to decay learning rate at (i.e. convert iterations to epochs)
     # To convert iterations to epochs, divide iterations by the number of iterations per epoch
     # The paper trains for 120,000 iterations with a batch size of 32, decays after 80,000 and 100,000 iterations
-    epochs = iterations // (len(train_dataset) // 32)
-    decay_lr_at = [it // (len(train_dataset) // 32) for it in decay_lr_at]
+    epochs = iterations // (len(train_dataset) // 8)
+    decay_lr_at = [it // (len(train_dataset) // 8) for it in decay_lr_at]
 
     # Epochs
     for epoch in range(start_epoch, epochs):

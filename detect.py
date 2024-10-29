@@ -1,6 +1,8 @@
 from torchvision import transforms
-from utils import *
+from utils import rev_label_map,label_color_map
+import torch
 from PIL import Image, ImageDraw, ImageFont
+import os
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -44,14 +46,23 @@ def detect(original_image, min_score, max_overlap, top_k, suppress=None):
     # Detect objects in SSD output
     det_boxes, det_labels, det_scores = model.detect_objects(predicted_locs, predicted_scores, min_score=min_score,
                                                              max_overlap=max_overlap, top_k=top_k)
-
+   
     # Move detections to the CPU
     det_boxes = det_boxes[0].to('cpu')
+    det_scores = det_scores[0].to('cpu') 
 
+    # Transform to original image dimensions
     # Transform to original image dimensions
     original_dims = torch.FloatTensor(
         [original_image.width, original_image.height, original_image.width, original_image.height]).unsqueeze(0)
     det_boxes = det_boxes * original_dims
+
+    # Clip bounding boxes to lie within the image boundaries
+    det_boxes[:, 0] = torch.clamp(det_boxes[:, 0], min=0, max=original_image.width)  # x_min
+    det_boxes[:, 1] = torch.clamp(det_boxes[:, 1], min=0, max=original_image.height)  # y_min
+    det_boxes[:, 2] = torch.clamp(det_boxes[:, 2], min=0, max=original_image.width)  # x_max
+    det_boxes[:, 3] = torch.clamp(det_boxes[:, 3], min=0, max=original_image.height)  # y_max
+
 
     # Decode class integer labels
     det_labels = [rev_label_map[l] for l in det_labels[0].to('cpu').tolist()]
@@ -88,15 +99,48 @@ def detect(original_image, min_score, max_overlap, top_k, suppress=None):
         textbox_location = [box_location[0], box_location[1] - text_size[1], box_location[0] + text_size[0] + 4.,
                             box_location[1]]
         draw.rectangle(xy=textbox_location, fill=label_color_map[det_labels[i]])
-        draw.text(xy=text_location, text=det_labels[i].upper(), fill='white',
-                  font=font)
+        label_and_score = f"{det_labels[i].upper()} {det_scores[i]:.2f}"  # Add the confidence score formatted to 2 decimal places
+        text_size = font.getsize(label_and_score)
+        text_location = [box_location[0] + 2., box_location[1] - text_size[1]]
+        textbox_location = [box_location[0], box_location[1] - text_size[1], box_location[0] + text_size[0] + 4., box_location[1]]
+        draw.rectangle(xy=textbox_location, fill=label_color_map[det_labels[i]])
+        draw.text(xy=text_location, text=label_and_score, fill='white', font=font)  # Use label_and_score
+
     del draw
 
     return annotated_image
 
+def detect_and_save(img_path, output_folder, min_score=0.55, max_overlap=0.1, top_k=5):
+    try:
+        original_image = Image.open(img_path).convert('RGB')
+        # Assuming `detect` function is defined elsewhere in your code
+        result_image = detect(original_image, min_score=min_score, max_overlap=max_overlap, top_k=top_k)
+        
+        # Construct the output path and save the result
+        img_name = os.path.basename(img_path)
+        result_path = os.path.join(output_folder, img_name)
+        result_image.save(result_path)
+        print(f"Processed and saved: {result_path}")
+        
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+
 
 if __name__ == '__main__':
-    img_path = '/media/ssd/ssd data/VOC2007/JPEGImages/000001.jpg'
-    original_image = Image.open(img_path, mode='r')
-    original_image = original_image.convert('RGB')
-    detect(original_image, min_score=0.2, max_overlap=0.5, top_k=200).show()
+    images_folder = r'broken\JPEGImages'
+    test_ids_path = r'broken\ImageSets\Main\test.txt'
+    output_folder = r'results'
+    os.makedirs(output_folder, exist_ok=True)
+    with open(test_ids_path, 'r') as f:
+        image_ids = [line.strip() for line in f.readlines()]
+
+    for img_id in image_ids:
+        img_path = os.path.join(images_folder, f"{img_id}.jpg")  # Adjust extension if needed
+        detect_and_save(img_path, output_folder)
+    # try:
+    #     original_image = Image.open(img_path, mode='r')
+    # except FileNotFoundError as e:
+    #     print(f"Error: {e}")
+    # original_image = original_image.convert('RGB')
+    # detect(original_image, min_score=0.2, max_overlap=0.5, top_k=200).show()
+
